@@ -48,3 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.0.2] - 2025-06-17
 ### Changed
 - Updated documentation with detailed usage examples
+
+## [0.0.3] - 2025-06-17
+### Fixed
+- Fixed waveform rendering issues on smaller screens
