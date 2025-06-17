@@ -208,7 +208,7 @@ void main() {
     group('Parameter validation', () {
       testWidgets('throws assertion error for negative height', (tester) async {
         expect(
-              () => InnovareAudioWaveformPlayer(
+          () => InnovareAudioWaveformPlayer(
             uri: testUri,
             waveform: testWaveform,
             height: -10,
@@ -219,7 +219,7 @@ void main() {
 
       testWidgets('throws assertion error for zero height', (tester) async {
         expect(
-              () => InnovareAudioWaveformPlayer(
+          () => InnovareAudioWaveformPlayer(
             uri: testUri,
             waveform: testWaveform,
             height: 0,
@@ -230,7 +230,8 @@ void main() {
     });
 
     group('Gradient support', () {
-      testWidgets('accepts custom gradient for played waveform', (tester) async {
+      testWidgets('accepts custom gradient for played waveform',
+          (tester) async {
         const gradient = LinearGradient(
           colors: [Colors.red, Colors.blue],
         );
