@@ -41,7 +41,7 @@ flutter pub get
 ### Basic Usage
 
 ```dart
-import 'package:innovare_audio_waveform_player/innovare_audio_waveform_player.dart';
+import 'package:innovare_audio_waveform_player/innovare_audio_waveform_player_test.dart';
 
 InnovareAudioWaveformPlayer(
   uri: 'https://example.com/audio.mp3',
