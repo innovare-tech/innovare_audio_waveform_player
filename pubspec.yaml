@@ -1,6 +1,6 @@
 name: innovare_audio_waveform_player
 description: A customizable audio waveform player widget for Flutter with animated transitions, play-pulse effects, and dynamic theming.
-version: 0.0.1
+version: 0.0.2
 homepage: https://github.com/innovare-tech/innovare_audio_waveform_player
 repository: https://github.com/innovare-tech/innovare_audio_waveform_player
 issue_tracker: https://github.com/innovare-tech/innovare_audio_waveform_player/issues
