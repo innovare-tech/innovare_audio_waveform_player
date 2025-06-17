@@ -108,9 +108,8 @@ void main() {
 
       // Look for time display pattern (may be different formats)
       final timeDisplayFinder = find.byWidgetPredicate(
-            (widget) => widget is Text &&
-            widget.data != null &&
-            widget.data!.contains('/'),
+        (widget) =>
+            widget is Text && widget.data != null && widget.data!.contains('/'),
       );
 
       expect(timeDisplayFinder, findsOneWidget);
@@ -139,7 +138,8 @@ void main() {
 
       // Find container with background color
       final containerFinder = find.byWidgetPredicate(
-            (widget) => widget is Container && widget.color == customBackgroundColor,
+        (widget) =>
+            widget is Container && widget.color == customBackgroundColor,
       );
       expect(containerFinder, findsOneWidget);
     });
@@ -161,7 +161,7 @@ void main() {
 
       // Find SizedBox with the custom height (used for waveform)
       final sizedBoxFinder = find.byWidgetPredicate(
-            (widget) => widget is SizedBox && widget.height == customHeight,
+        (widget) => widget is SizedBox && widget.height == customHeight,
       );
       expect(sizedBoxFinder, findsOneWidget);
     });
@@ -217,7 +217,8 @@ void main() {
 
       // Find ConstrainedBox specifically for the player with expected max width
       final constrainedBoxFinder = find.byWidgetPredicate(
-            (widget) => widget is ConstrainedBox &&
+        (widget) =>
+            widget is ConstrainedBox &&
             widget.constraints.maxWidth == 360.0, // 45% of 800px
       );
 
@@ -297,7 +298,8 @@ void main() {
     });
 
     group('Gradient support', () {
-      testWidgets('accepts custom gradient for played waveform', (tester) async {
+      testWidgets('accepts custom gradient for played waveform',
+          (tester) async {
         const gradient = LinearGradient(
           colors: [Colors.red, Colors.blue],
         );
@@ -338,7 +340,8 @@ void main() {
         expect(find.byType(ScaleTransition), findsAtLeastNWidgets(1));
 
         // Should have TweenAnimationBuilder for color animation
-        expect(find.byType(TweenAnimationBuilder<Color?>), findsAtLeastNWidgets(1));
+        expect(find.byType(TweenAnimationBuilder<Color?>),
+            findsAtLeastNWidgets(1));
       });
     });
 
