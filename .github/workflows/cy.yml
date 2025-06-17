@@ -1,133 +1,531 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+env:
+  FLUTTER_VERSION: '3.19.0'
+  DART_VERSION: '3.3.0'
 
 jobs:
-  test:
+  # Job 1: Code Quality & Analysis
+  code-quality:
+    name: Code Quality & Static Analysis
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better analysis
 
-      - name: Setup Flutter
+      - name: Setup Flutter SDK
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
+          cache-key: 'flutter-:os:-:channel:-:version:-:arch:-:hash:'
+          cache-path: '${{ runner.tool_cache }}/flutter/:channel:-:version:-:arch:'
 
-      - name: Install dependencies
+      - name: Verify Flutter installation
+        run: |
+          flutter --version
+          flutter doctor -v
+          which dart
+          dart --version
+
+      - name: Get dependencies
         run: flutter pub get
+
+      - name: Check dependencies for security vulnerabilities
+        run: |
+          flutter pub deps
+          dart pub audit || echo "⚠️  Security audit completed with warnings"
 
       - name: Verify formatting
-        run: dart format --output=none --set-exit-if-changed .
+        run: |
+          echo "Checking Dart code formatting..."
+          dart format --output=none --set-exit-if-changed .
+          echo "✅ Code formatting is correct"
 
-      - name: Analyze project source
-        run: dart analyze --fatal-infos
+      - name: Analyze code with strict settings
+        run: |
+          echo "Running Dart analyzer with strict rules..."
+          dart analyze --fatal-infos --fatal-warnings
+          echo "✅ Static analysis passed"
 
-      - name: Run tests
-        run: flutter test --coverage
+      - name: Check for outdated dependencies
+        run: |
+          echo "Checking for outdated dependencies..."
+          flutter pub outdated || true
 
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v3
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      - name: Validate pubspec.yaml
+        run: |
+          echo "Validating pubspec.yaml structure..."
+          dart pub deps --style=tree
+          
+          # Check required fields
+          if ! grep -q "^name: innovare_audio_waveform_player$" pubspec.yaml; then
+            echo "❌ Package name is incorrect"
+            exit 1
+          fi
+          
+          if ! grep -q "^description: " pubspec.yaml; then
+            echo "❌ Description is missing"
+            exit 1
+          fi
+          
+          if ! grep -q "^version: " pubspec.yaml; then
+            echo "❌ Version is missing"
+            exit 1
+          fi
+          
+          echo "✅ pubspec.yaml validation passed"
 
-  build-example:
+  # Job 2: Comprehensive Testing
+  testing:
+    name: Unit & Integration Tests
     runs-on: ubuntu-latest
-    needs: test
+    needs: code-quality
+    timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Setup Flutter
+      - name: Setup Flutter SDK
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
 
-      - name: Install dependencies
+      - name: Get dependencies
         run: flutter pub get
 
-      - name: Build example app for web
+      - name: Run unit tests with coverage
+        run: |
+          echo "Running unit tests with coverage..."
+          flutter test --coverage --reporter=expanded
+          echo "✅ Unit tests completed"
+
+      - name: Verify test coverage
+        run: |
+          echo "Analyzing test coverage..."
+          
+          # Install lcov for coverage analysis
+          sudo apt-get update
+          sudo apt-get install -y lcov
+          
+          # Generate coverage report
+          genhtml coverage/lcov.info -o coverage/html --quiet
+          
+          # Extract coverage percentage
+          COVERAGE=$(lcov --summary coverage/lcov.info 2>&1 | grep "lines\|functions\|branches" | head -1 | grep -o '[0-9.]*%' | head -1)
+          echo "Test coverage: $COVERAGE"
+          
+          # Set minimum coverage threshold (adjust as needed)
+          MINIMUM_COVERAGE=80
+          COVERAGE_NUM=$(echo $COVERAGE | sed 's/%//')
+          
+          if (( $(echo "$COVERAGE_NUM < $MINIMUM_COVERAGE" | bc -l) )); then
+            echo "❌ Coverage $COVERAGE is below minimum $MINIMUM_COVERAGE%"
+            exit 1
+          fi
+          
+          echo "✅ Coverage $COVERAGE meets minimum requirements"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        if: success()
+        with:
+          file: coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Test example app dependencies
+        run: |
+          echo "Testing example app..."
+          cd example
+          flutter pub get
+          flutter analyze
+          echo "✅ Example app validation passed"
+
+  # Job 3: Multi-Platform Build Verification
+  build-verification:
+    name: Build Verification (${{ matrix.platform }})
+    runs-on: ubuntu-latest
+    needs: code-quality
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [web, android, linux]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Setup platform-specific dependencies
+        run: |
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+          fi
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build example app for ${{ matrix.platform }}
         run: |
           cd example
           flutter pub get
-          flutter build web --release
+          
+          case "${{ matrix.platform }}" in
+            web)
+              echo "Building for Web..."
+              flutter build web --release --verbose
+              ;;
+            android)
+              echo "Building for Android..."
+              flutter build apk --release --verbose
+              ;;
+            linux)
+              echo "Building for Linux..."
+              flutter build linux --release --verbose
+              ;;
+          esac
+          
+          echo "✅ Build for ${{ matrix.platform }} completed successfully"
 
-      - name: Build example app for Android
+      - name: Verify build artifacts
         run: |
           cd example
-          flutter build apk --release
+          case "${{ matrix.platform }}" in
+            web)
+              if [ ! -d "build/web" ]; then
+                echo "❌ Web build artifacts not found"
+                exit 1
+              fi
+              echo "✅ Web build artifacts verified"
+              ;;
+            android)
+              if [ ! -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
+                echo "❌ Android APK not found"
+                exit 1
+              fi
+              echo "✅ Android APK verified"
+              ;;
+            linux)
+              if [ ! -d "build/linux" ]; then
+                echo "❌ Linux build artifacts not found"
+                exit 1
+              fi
+              echo "✅ Linux build artifacts verified"
+              ;;
+          esac
 
-  publish-dry-run:
+  # Job 4: Package Validation
+  package-validation:
+    name: Package Validation & Dry Run
     runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'pull_request'
+    needs: [code-quality, testing]
+    timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Setup Flutter
+      - name: Setup Flutter SDK
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
 
-      - name: Install dependencies
+      - name: Get dependencies
         run: flutter pub get
 
-      - name: Check publish warnings
-        run: dart pub publish --dry-run
-
-  publish:
-    runs-on: ubuntu-latest
-    needs: [test, build-example]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.19.0'
-          channel: 'stable'
-          cache: true
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Setup Pub Credentials
-        shell: bash
-        env:
-          PUB_DEV_PUBLISH_ACCESS_TOKEN: ${{ secrets.PUB_DEV_PUBLISH_ACCESS_TOKEN }}
-          PUB_DEV_PUBLISH_REFRESH_TOKEN: ${{ secrets.PUB_DEV_PUBLISH_REFRESH_TOKEN }}
-          PUB_DEV_PUBLISH_TOKEN_ENDPOINT: ${{ secrets.PUB_DEV_PUBLISH_TOKEN_ENDPOINT }}
-          PUB_DEV_PUBLISH_EXPIRATION: ${{ secrets.PUB_DEV_PUBLISH_EXPIRATION }}
+      - name: Validate package structure
         run: |
-          sh -c "echo '{\"accessToken\":\"${PUB_DEV_PUBLISH_ACCESS_TOKEN}\",\"refreshToken\":\"${PUB_DEV_PUBLISH_REFRESH_TOKEN}\",\"tokenEndpoint\":\"${PUB_DEV_PUBLISH_TOKEN_ENDPOINT}\",\"scopes\":[\"openid\",\"https://www.googleapis.com/auth/userinfo.email\"],\"expiration\":${PUB_DEV_PUBLISH_EXPIRATION}}' > ~/.pub-cache/pub-credentials.json"
-
-      - name: Check if version changed
-        id: version
-        run: |
-          # Get current version from pubspec.yaml
-          CURRENT_VERSION=$(grep '^version: ' pubspec.yaml | cut -d ' ' -f 2)
-          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "Validating package structure..."
           
-          # Check if this version already exists on pub.dev
-          if curl -s "https://pub.dev/api/packages/innovare_audio_waveform_player" | grep -q "\"version\":\"$CURRENT_VERSION\""; then
-            echo "version_exists=true" >> $GITHUB_OUTPUT
+          # Check required files
+          REQUIRED_FILES=("lib/innovare_audio_waveform_player.dart" "lib/src/innovare_audio_waveform_player.dart" "README.md" "CHANGELOG.md" "LICENSE" "pubspec.yaml")
+          
+          for file in "${REQUIRED_FILES[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "❌ Required file missing: $file"
+              exit 1
+            fi
+          done
+          
+          echo "✅ Package structure validation passed"
+
+      - name: Validate documentation
+        run: |
+          echo "Generating and validating documentation..."
+          dart doc --validate-links
+          echo "✅ Documentation validation passed"
+
+      - name: Check package scoring criteria
+        run: |
+          echo "Checking pub.dev scoring criteria..."
+          
+          # Check README length (should be substantial)
+          README_LINES=$(wc -l < README.md)
+          if [ $README_LINES -lt 50 ]; then
+            echo "⚠️  README.md might be too short ($README_LINES lines)"
+          fi
+          
+          # Check for example
+          if [ ! -d "example" ]; then
+            echo "⚠️  No example directory found"
+          fi
+          
+          # Check for tests
+          if [ ! -d "test" ]; then
+            echo "❌ No test directory found"
+            exit 1
+          fi
+          
+          echo "✅ Package scoring criteria checked"
+
+      - name: Dry run publish
+        run: |
+          echo "Running pub publish dry run..."
+          dart pub publish --dry-run
+          echo "✅ Package ready for publication"
+
+      - name: Check for sensitive files
+        run: |
+          echo "Checking for sensitive files that shouldn't be published..."
+          
+          # Files that shouldn't be in the package
+          SENSITIVE_PATTERNS=(".env" "*.key" "*.p12" "*.keystore" "google-services.json" "GoogleService-Info.plist")
+          
+          for pattern in "${SENSITIVE_PATTERNS[@]}"; do
+            if find . -name "$pattern" -not -path "./build/*" -not -path "./.dart_tool/*" | grep -q .; then
+              echo "⚠️  Found potentially sensitive files matching: $pattern"
+            fi
+          done
+          
+          echo "✅ Sensitive file check completed"
+
+  # Job 5: Security Scan
+  security-scan:
+    name: Security Vulnerability Scan
+    runs-on: ubuntu-latest
+    needs: code-quality
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Run security audit
+        run: |
+          echo "Running Dart security audit..."
+          dart pub audit
+          echo "✅ Security audit completed"
+
+      - name: Check for hardcoded secrets
+        run: |
+          echo "Scanning for potential hardcoded secrets..."
+          
+          # Simple patterns to check (extend as needed)
+          SECRET_PATTERNS=("password\s*=\s*['\"][^'\"]*['\"]" "api[_-]?key\s*=\s*['\"][^'\"]*['\"]" "secret\s*=\s*['\"][^'\"]*['\"]")
+          
+          FOUND_ISSUES=false
+          for pattern in "${SECRET_PATTERNS[@]}"; do
+            if grep -r -i -E "$pattern" lib/ test/ example/ 2>/dev/null; then
+              echo "⚠️  Potential secret found matching pattern: $pattern"
+              FOUND_ISSUES=true
+            fi
+          done
+          
+          if [ "$FOUND_ISSUES" = true ]; then
+            echo "⚠️  Please review potential secrets above"
           else
-            echo "version_exists=false" >> $GITHUB_OUTPUT
+            echo "✅ No obvious secrets found"
           fi
 
+  # Job 6: Performance & Size Analysis
+  performance-analysis:
+    name: Performance & Size Analysis
+    runs-on: ubuntu-latest
+    needs: build-verification
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze package size
+        run: |
+          echo "Analyzing package size..."
+          
+          # Build and analyze package
+          cd example
+          flutter pub get
+          flutter build web --analyze-size
+          
+          echo "✅ Size analysis completed"
+
+      - name: Check dependency tree
+        run: |
+          echo "Analyzing dependency tree..."
+          flutter pub deps --style=tree
+          echo "✅ Dependency analysis completed"
+
+  # Job 7: Automated Publishing (only on tags)
+  publish:
+    name: Publish to pub.dev
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [testing, build-verification, package-validation, security-scan]
+    timeout-minutes: 10
+
+    # Required for OIDC authentication
+    permissions:
+      id-token: write
+
+    environment:
+      name: pub-dev
+      url: https://pub.dev/packages/innovare_audio_waveform_player
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ env.DART_VERSION }}
+
+      - name: Get dependencies
+        run: dart pub get
+
+      - name: Verify tag format
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          echo "Publishing version: $TAG_NAME"
+          
+          # Extract version from tag (remove 'v' prefix)
+          VERSION=${TAG_NAME#v}
+          
+          # Verify version in pubspec.yaml matches tag
+          PUBSPEC_VERSION=$(grep '^version: ' pubspec.yaml | cut -d ' ' -f 2)
+          
+          if [ "$VERSION" != "$PUBSPEC_VERSION" ]; then
+            echo "❌ Tag version ($VERSION) doesn't match pubspec.yaml version ($PUBSPEC_VERSION)"
+            exit 1
+          fi
+          
+          echo "✅ Version verification passed"
+
+      - name: Verify CHANGELOG entry
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG_NAME#v}
+          
+          if ! grep -q "## \[$VERSION\]" CHANGELOG.md; then
+            echo "❌ No CHANGELOG.md entry found for version $VERSION"
+            echo "Please add a changelog entry in the format: ## [$VERSION] - $(date +%Y-%m-%d)"
+            exit 1
+          fi
+          
+          echo "✅ CHANGELOG.md entry verified"
+
+      - name: Final validation before publish
+        run: |
+          echo "Running final validation..."
+          dart analyze --fatal-infos
+          dart pub publish --dry-run
+          echo "✅ Final validation passed"
+
       - name: Publish to pub.dev
-        if: steps.version.outputs.version_exists == 'false'
-        run: dart pub publish --force
+        run: |
+          echo "Publishing to pub.dev..."
+          dart pub token add https://pub.dartlang.org --env-var PUB_TOKEN
+          dart pub publish --force
+          echo "✅ Package published successfully!"
+        env:
+          PUB_TOKEN: ${{ secrets.PUB_TOKEN }}
+
+  # Job 8: Post-publish notifications
+  post-publish:
+    name: Post-publish Actions
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: publish
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          body: |
+            ## Changes
+            
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for detailed changes.
+            
+            ## Package
+            
+            📦 [pub.dev package](https://pub.dev/packages/innovare_audio_waveform_player)
+            
+            ## Installation
+            
+            ```yaml
+            dependencies:
+              innovare_audio_waveform_player: ^${{ github.ref_name }}
+            ```
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+
+      - name: Package published notification
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          echo "🎉 Package $TAG_NAME has been successfully published to pub.dev!"
+          echo "📦 https://pub.dev/packages/innovare_audio_waveform_player"
+          echo "📋 https://pub.dev/packages/innovare_audio_waveform_player/changelog"

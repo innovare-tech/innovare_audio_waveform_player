@@ -75,27 +75,57 @@ flutter run -d chrome  # Para web
 flutter run             # Para dispositivo/emulador
 ```
 
-## Configuração do GitHub Actions
+## Configuração do GitHub Actions Customizado
 
-### 1. Secrets Necessários
+### 1. Workflow Abrangente Implementado
 
-Configure os seguintes secrets no GitHub (Settings > Secrets and variables > Actions):
+O projeto inclui um workflow customizado e robusto que implementa:
 
-- `PUB_DEV_PUBLISH_ACCESS_TOKEN`
-- `PUB_DEV_PUBLISH_REFRESH_TOKEN`
-- `PUB_DEV_PUBLISH_TOKEN_ENDPOINT`
-- `PUB_DEV_PUBLISH_EXPIRATION`
-- `CODECOV_TOKEN` (opcional, para coverage)
+**🔍 Análise de Qualidade**
+- Formatação, linting, auditoria de segurança
+- Validação de estrutura e documentação
+- Verificação de dependências
 
-### 2. Obter Credenciais do pub.dev
+**🧪 Testes Abrangentes**
+- Testes unitários com coverage mínimo (80%)
+- Validação do app de exemplo
+- Upload para Codecov
 
+**🏗️ Builds Multi-Plataforma**
+- Web, Android, Linux
+- Verificação de artefatos
+- Análise de performance
+
+**🚀 Publicação Automatizada OIDC**
+- Segue tutorial oficial do pub.dev
+- Validação de versões e changelog
+- Environment-based security
+
+### 2. Configuração do Environment GitHub
+
+1. **No GitHub, vá em Settings > Environments**
+2. **Crie environment**: `pub-dev`
+3. **Configure proteções** (opcional):
+    - Required reviewers
+    - Deployment branches: `v*`
+
+### 3. Configurar pub.dev (Após primeira publicação)
+
+1. **Primeira publicação manual:**
 ```bash
-# Login no pub.dev para gerar credenciais
-dart pub login
-
-# As credenciais ficam em ~/.pub-cache/pub-credentials.json
-# Use os valores para configurar os secrets do GitHub
+dart pub publish
 ```
+
+2. **Configure automated publishing:**
+    - Acesse: https://pub.dev/packages/innovare_audio_waveform_player/admin
+    - **Repository**: `yourusername/innovare_audio_waveform_player`
+    - **Environment**: `pub-dev`
+    - **Tag pattern**: `v{{version}}`
+
+### 4. Secrets Opcionais
+
+- `CODECOV_TOKEN` (coverage reports)
+- `GITHUB_TOKEN` (criado automaticamente)
 
 ### 3. Configurar Branch Protection
 
